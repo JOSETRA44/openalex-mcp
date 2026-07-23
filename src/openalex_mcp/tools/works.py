@@ -1,5 +1,7 @@
 """Tools for searching and retrieving scholarly works from OpenAlex."""
 
+from urllib.parse import quote
+
 from mcp.server.fastmcp import FastMCP
 from mcp.shared.exceptions import McpError
 from mcp.types import ErrorData, INTERNAL_ERROR
@@ -7,6 +9,67 @@ from mcp.types import ErrorData, INTERNAL_ERROR
 from ..client import OpenAlexClient
 from ..exceptions import OpenAlexAPIError
 from ..formatters import format_works_list, format_work
+
+
+async def search_works(
+    client: OpenAlexClient,
+    query: str = "",
+    filters: str = "",
+    sort: str = "relevance_score:desc",
+    per_page: int = 10,
+    page: int = 1,
+) -> dict:
+    """Search scholarly works. Shared by the MCP tool and the CLI.
+
+    - query: Free-text search (title + abstract). Leave empty to use filters only.
+    - filters: Comma-separated OpenAlex filter expressions.
+      Examples: 'publication_year:>2020', 'type:article', 'institutions.id:I97018004',
+                'open_access.is_oa:true', 'cited_by_count:>100', 'language:en'
+    - sort: Sort order. Options: 'cited_by_count:desc', 'publication_date:desc',
+            'relevance_score:desc' (only with query), 'cited_by_count:asc'
+    - per_page: Results per page (1-200, default 10)
+    - page: Page number for pagination (default 1)
+    """
+    per_page = max(1, min(200, per_page))
+    params: dict = {"per_page": per_page, "page": page}
+    if query:
+        params["search"] = query
+    if filters:
+        params["filter"] = filters
+    if sort and sort != "relevance_score:desc" or not query:
+        params["sort"] = sort if sort else "cited_by_count:desc"
+    elif query:
+        params["sort"] = sort
+    raw = await client.request("/works", params)
+    return format_works_list(raw, query=query or filters)
+
+
+def _work_path(identifier: str) -> str:
+    ident = identifier.strip()
+    # Normalize DOI → openalex doi: path
+    if ident.startswith("https://doi.org/"):
+        ident = ident[len("https://doi.org/"):]
+    if ident.startswith("http://doi.org/"):
+        ident = ident[len("http://doi.org/"):]
+
+    if ident.startswith("W") and ident[1:].isdigit():
+        return f"/works/{ident}"
+    if ident.startswith("https://openalex.org/"):
+        return f"/works/{ident.rsplit('/', 1)[-1]}"
+    if ident.lower().startswith("pmid:"):
+        return f"/works/pmid:{ident[5:]}"
+    # Assume DOI
+    return f"/works/https://doi.org/{quote(ident, safe='/:@!$&()*+,;=')}"
+
+
+async def get_work(client: OpenAlexClient, identifier: str) -> dict:
+    """Retrieve full metadata for a single scholarly work. Shared by the MCP tool and the CLI.
+
+    - identifier: OpenAlex ID ('W2741809807'), DOI ('10.1038/s41586-021-03819-2' or full URL),
+                  or PubMed ID ('pmid:34512593')
+    """
+    raw = await client.request(_work_path(identifier))
+    return format_work(raw)
 
 
 def register_works_tools(mcp: FastMCP, client: OpenAlexClient) -> None:
@@ -40,19 +103,8 @@ def register_works_tools(mcp: FastMCP, client: OpenAlexClient) -> None:
         - per_page: Results per page (1–200, default 10)
         - page: Page number for pagination (default 1)
         """
-        per_page = max(1, min(200, per_page))
-        params: dict = {"per_page": per_page, "page": page}
-        if query:
-            params["search"] = query
-        if filters:
-            params["filter"] = filters
-        if sort and sort != "relevance_score:desc" or not query:
-            params["sort"] = sort if sort else "cited_by_count:desc"
-        elif query:
-            params["sort"] = sort
         try:
-            raw = await client.request("/works", params)
-            return format_works_list(raw, query=query or filters)
+            return await search_works(client, query, filters, sort, per_page, page)
         except OpenAlexAPIError as exc:
             raise McpError(ErrorData(code=INTERNAL_ERROR, message=str(exc))) from exc
 
@@ -73,26 +125,7 @@ def register_works_tools(mcp: FastMCP, client: OpenAlexClient) -> None:
             - DOI: '10.1038/s41586-021-03819-2' or 'https://doi.org/10.1038/...'
             - PubMed ID: 'pmid:34512593'
         """
-        ident = identifier.strip()
-        # Normalize DOI → openalex doi: path
-        if ident.startswith("https://doi.org/"):
-            ident = ident[len("https://doi.org/"):]
-        if ident.startswith("http://doi.org/"):
-            ident = ident[len("http://doi.org/"):]
-
-        if ident.startswith("W") and ident[1:].isdigit():
-            path = f"/works/{ident}"
-        elif ident.startswith("https://openalex.org/"):
-            path = f"/works/{ident.rsplit('/', 1)[-1]}"
-        elif ident.lower().startswith("pmid:"):
-            path = f"/works/pmid:{ident[5:]}"
-        else:
-            # Assume DOI
-            from urllib.parse import quote
-            path = f"/works/https://doi.org/{quote(ident, safe='/:@!$&()*+,;=')}"
-
         try:
-            raw = await client.request(path)
-            return format_work(raw)
+            return await get_work(client, identifier)
         except OpenAlexAPIError as exc:
             raise McpError(ErrorData(code=INTERNAL_ERROR, message=str(exc))) from exc

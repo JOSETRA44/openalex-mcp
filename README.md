@@ -1,8 +1,8 @@
-# OpenAlex MCP Server
+# OpenAlex MCP Server & CLI
 
-Connects any MCP-compatible AI agent to [OpenAlex](https://openalex.org) — the world's largest **free and open** scholarly database with 250+ million works, 300+ million authors, 100,000+ institutions, and billions of citation links.
+Connects any MCP-compatible AI agent — or your terminal — to [OpenAlex](https://openalex.org): the world's largest **free and open** scholarly database with 250+ million works, 300+ million authors, 100,000+ institutions, and billions of citation links.
 
-**Works with:** Claude Desktop · Claude Code · Cursor · VS Code Copilot · Windsurf · Zed · any MCP client
+**Works with:** Claude Desktop · Claude Code · Cursor · VS Code Copilot · Windsurf · Zed · any MCP client — or standalone via the [`openalex` CLI](#cli-command-line)
 
 **No paywall. No institutional access required. CC0 licensed data.**
 
@@ -314,6 +314,45 @@ The script backs up existing config files before modifying them.
 
 ---
 
+## CLI (Command Line)
+
+This package also installs an `openalex` command — a standalone terminal client for OpenAlex, no MCP client required. Every subcommand calls the exact same tool functions the MCP server uses (`src/openalex_mcp/tools/*.py`), so results match 1:1.
+
+### Install
+```bash
+pip install openalex-mcp        # or: uv tool install openalex-mcp
+openalex --help                 # confirm it's on your PATH
+```
+From source: `uv sync` installs the `openalex` script into `.venv/Scripts` (Windows) or `.venv/bin` (macOS/Linux).
+
+### Commands
+
+| Command | Mirrors | What it does |
+|---------|---------|---------------|
+| `openalex search-works <query>` | `openalex_search_works` | Search works |
+| `openalex get-work <id>` | `openalex_get_work` | Full work metadata |
+| `openalex search-authors <query>` | `openalex_search_authors` | Search researchers |
+| `openalex get-author <id>` | `openalex_get_author` | Full author profile |
+| `openalex search-institutions <query>` | `openalex_search_institutions` | Search institutions |
+| `openalex get-institution <id>` | `openalex_get_institution` | Full institution details |
+| `openalex search-sources <query>` | `openalex_search_sources` | Search journals/venues |
+| `openalex get-source <id>` | `openalex_get_source` | Full source details |
+| `openalex aggregate-works <group_by>` | `openalex_aggregate_works` | Group/count works |
+| `openalex filter-guide` | `openalex://filter-reference` | Print the filter syntax reference |
+
+Run `openalex <command> --help` for that command's flags. Every command supports `--json` for raw machine-readable output (pipe into `jq`, save to a file, script it), and `--api-key` / `--email` to override `.env` for a single call.
+
+```bash
+openalex search-works "federated learning privacy" -f "publication_year:>2021,type:article" -s "cited_by_count:desc"
+openalex get-work 10.1038/s41586-021-03819-2
+openalex search-authors "Geoffrey Hinton"
+openalex aggregate-works publication_year -f "institutions.id:I865918315" --json | jq '.groups[0]'
+```
+
+Auth and settings come from the same environment variables as the MCP server — see [Environment Variables](#environment-variables).
+
+---
+
 ## Example Queries
 
 ```python
@@ -460,12 +499,14 @@ Broaden your query: remove `publication_year` filters, or try `query=` instead o
 ```
 openalex-mcp/
 ├── src/openalex_mcp/
-│   ├── server.py           # FastMCP entry point
+│   ├── server.py           # FastMCP entry point (registers tools as MCP tools)
+│   ├── cli.py              # `openalex` CLI entry point (calls the same tool functions)
+│   ├── cli_output.py       # Human-readable table/detail rendering for the CLI
 │   ├── config.py           # Env var configuration (pydantic-settings)
 │   ├── client.py           # Async HTTP client + TTL cache + rate limiting
 │   ├── exceptions.py       # Error hierarchy
 │   ├── formatters.py       # Raw OpenAlex JSON → clean AI-friendly dicts
-│   ├── tools/              # 9 MCP tools (works, authors, institutions, sources, aggregate)
+│   ├── tools/              # Core tool functions, shared by server.py and cli.py
 │   └── resources/          # openalex://filter-reference static resource
 ├── openalex-researcher/    # Agent skill
 │   ├── SKILL.md

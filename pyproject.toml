@@ -28,6 +28,7 @@ dependencies = [
 
 [project.scripts]
 openalex-mcp = "openalex_mcp.server:main"
+openalex = "openalex_mcp.cli:main"
 
 [project.urls]
 Homepage = "https://github.com/JOSETRA44/openalex-mcp"

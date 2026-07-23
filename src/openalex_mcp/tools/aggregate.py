@@ -24,6 +24,38 @@ VALID_GROUP_FIELDS = {
 }
 
 
+class InvalidGroupByError(ValueError):
+    """Raised when group_by is not one of VALID_GROUP_FIELDS."""
+
+
+async def aggregate_works(
+    client: OpenAlexClient,
+    group_by: str,
+    filters: str = "",
+    query: str = "",
+) -> dict:
+    """Aggregate (count/group) works by a field. Shared by the MCP tool and the CLI.
+
+    - group_by: Field to group by, see VALID_GROUP_FIELDS.
+    - filters: Comma-separated filters to scope the aggregation.
+      Examples: 'institutions.id:I97018004', 'publication_year:2015-2024',
+                'type:article', 'language:es'
+    - query: Optional full-text search to scope the aggregation
+    """
+    if group_by not in VALID_GROUP_FIELDS:
+        raise InvalidGroupByError(
+            f"Invalid group_by value '{group_by}'. "
+            f"Valid options: {', '.join(sorted(VALID_GROUP_FIELDS))}"
+        )
+    params: dict = {"group_by": group_by, "per_page": 200}
+    if filters:
+        params["filter"] = filters
+    if query:
+        params["search"] = query
+    raw = await client.request("/works", params)
+    return format_group_by(raw, group_field=group_by)
+
+
 def register_aggregate_tools(mcp: FastMCP, client: OpenAlexClient) -> None:
 
     @mcp.tool(
@@ -59,21 +91,9 @@ def register_aggregate_tools(mcp: FastMCP, client: OpenAlexClient) -> None:
                     'type:article', 'language:es'
         - query: Optional full-text search to scope the aggregation
         """
-        if group_by not in VALID_GROUP_FIELDS:
-            raise McpError(ErrorData(
-                code=INTERNAL_ERROR,
-                message=(
-                    f"Invalid group_by value '{group_by}'. "
-                    f"Valid options: {', '.join(sorted(VALID_GROUP_FIELDS))}"
-                ),
-            ))
-        params: dict = {"group_by": group_by, "per_page": 200}
-        if filters:
-            params["filter"] = filters
-        if query:
-            params["search"] = query
         try:
-            raw = await client.request("/works", params)
-            return format_group_by(raw, group_field=group_by)
+            return await aggregate_works(client, group_by, filters, query)
+        except InvalidGroupByError as exc:
+            raise McpError(ErrorData(code=INTERNAL_ERROR, message=str(exc))) from exc
         except OpenAlexAPIError as exc:
             raise McpError(ErrorData(code=INTERNAL_ERROR, message=str(exc))) from exc
