@@ -1,12 +1,19 @@
 ---
 name: openalex-researcher
-version: 1.0.0
+version: 2.0.0
 description: >
-  Use the OpenAlex MCP to search 250M+ scholarly works, retrieve author profiles,
-  analyze institutional output, explore journal sources, and aggregate citation trends —
-  all from the world's largest free and open scholarly database.
+  Search and analyze scholarly literature via OpenAlex (250M+ works, 300M+ authors,
+  100K+ institutions, 250K+ journals/sources — free, CC0, no paywall). Use this skill
+  whenever the user wants to find academic papers, look up a researcher's publication
+  record or h-index, audit a university's research output, discover journals, trace
+  citation networks, or chart publication trends over time — even if they don't say
+  "OpenAlex" by name (e.g. "find recent papers on X", "who cites this study", "how many
+  papers has this professor published", "is there a free version of this article").
+  Works two ways depending on what's available in the session: through the openalex_*
+  MCP tools when the OpenAlex MCP server is connected, or through the `openalex` CLI via
+  Bash when it isn't (plain shell/coding agents, CI, headless environments).
 author: JOSETRA44
-tags: [research, academic, scholarly, openalex, literature, citations, authors, institutions]
+tags: [research, academic, scholarly, openalex, literature, citations, authors, institutions, cli]
 mcp:
   server: openalex
   tools:
@@ -21,6 +28,10 @@ mcp:
     - openalex_aggregate_works
   resources:
     - openalex://filter-reference
+cli:
+  command: openalex
+  install: "pip install openalex-mcp  (or: uv tool install openalex-mcp)"
+  reference: references/cli-usage.md
 ---
 
 # OpenAlex Researcher Skill
@@ -37,18 +48,29 @@ OpenAlex covers 250M+ works, 300M+ authors, and 100K+ institutions. All data is 
 
 ---
 
+## Two ways to call OpenAlex — check which one you have
+
+1. **MCP tools available** (`openalex_search_works` etc. show up in your tool list) →
+   use them directly. This is the primary path; everything below assumes this unless
+   stated otherwise.
+2. **No MCP tools available** (shell-only agent, CI, no MCP server registered) →
+   shell out to the `openalex` CLI via Bash instead. It calls the identical underlying
+   code, so results match exactly — only the calling convention changes. Read
+   `references/cli-usage.md` for the full command reference, install check, and
+   `--json` scripting pattern before using it.
+
 ## When to Use Each Tool
 
-| Situation | Tool(s) |
-|-----------|---------|
-| User asks to find papers on a topic | `openalex_search_works` |
-| User has a DOI or paper ID | `openalex_get_work` |
-| User asks about a researcher | `openalex_search_authors` → `openalex_get_author` |
-| User wants institutional output | `openalex_search_institutions` → `openalex_search_works` |
-| User asks about a journal | `openalex_search_sources` → `openalex_get_source` |
-| User wants publication trends over time | `openalex_aggregate_works(group_by="publication_year")` |
-| User wants topic/type/country breakdown | `openalex_aggregate_works(group_by=...)` |
-| User needs filter syntax | Read `openalex://filter-reference` |
+| Situation | MCP tool | CLI equivalent |
+|-----------|----------|-----------------|
+| User asks to find papers on a topic | `openalex_search_works` | `openalex search-works` |
+| User has a DOI or paper ID | `openalex_get_work` | `openalex get-work` |
+| User asks about a researcher | `openalex_search_authors` → `openalex_get_author` | `openalex search-authors` → `openalex get-author` |
+| User wants institutional output | `openalex_search_institutions` → `openalex_search_works` | `openalex search-institutions` → `openalex search-works` |
+| User asks about a journal | `openalex_search_sources` → `openalex_get_source` | `openalex search-sources` → `openalex get-source` |
+| User wants publication trends over time | `openalex_aggregate_works(group_by="publication_year")` | `openalex aggregate-works publication_year` |
+| User wants topic/type/country breakdown | `openalex_aggregate_works(group_by=...)` | `openalex aggregate-works <group_by>` |
+| User needs filter syntax | Read `openalex://filter-reference` | `openalex filter-guide` |
 
 ---
 
@@ -407,10 +429,17 @@ All IDs are also valid as full URLs: `https://openalex.org/W2741809807`
 ## Install This Skill
 
 ```bash
-# Via npx skills (recommended)
-npx skills add JOSETRA44/openalex-mcp@openalex-researcher
+# Via npx skills (recommended) — discovers skills/openalex-researcher/SKILL.md
+npx skills add JOSETRA44/openalex-mcp --skill openalex-researcher
+
+# Or target the folder directly by URL
+npx skills add https://github.com/JOSETRA44/openalex-mcp/tree/main/skills/openalex-researcher
 
 # Or clone the repo and copy manually
 git clone https://github.com/JOSETRA44/openalex-mcp.git
-cp -r openalex-mcp/openalex-researcher ~/.claude/skills/
+cp -r openalex-mcp/skills/openalex-researcher ~/.claude/skills/
 ```
+
+This skill works standalone (via the `openalex` CLI, see above) even without installing
+the MCP server — but pairing it with the MCP server (`uvx openalex-mcp`, see below) lets
+agents call the tools natively instead of shelling out.
