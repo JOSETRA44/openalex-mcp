@@ -1,0 +1,38 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.JOSETRA44/openalex-mcp",
+  "title": "OpenAlex",
+  "description": "Search 250M+ scholarly works, authors, institutions and journals in the open OpenAlex database. No API key required.",
+  "version": "0.2.0",
+  "websiteUrl": "https://github.com/JOSETRA44/openalex-mcp#readme",
+  "repository": {
+    "url": "https://github.com/JOSETRA44/openalex-mcp",
+    "source": "github"
+  },
+  "packages": [
+    {
+      "registryType": "pypi",
+      "registryBaseUrl": "https://pypi.org",
+      "identifier": "openalex-mcp",
+      "version": "0.2.0",
+      "runtimeHint": "uvx",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "OPENALEX_EMAIL",
+          "description": "Contact email for OpenAlex's polite pool, which grants higher rate limits. Optional but recommended.",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "OPENALEX_API_KEY",
+          "description": "Premium OpenAlex API key. Optional; the free tier needs none.",
+          "isRequired": false,
+          "isSecret": true
+        }
+      ]
+    }
+  ]
+}
