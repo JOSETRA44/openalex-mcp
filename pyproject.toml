@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "openalex-mcp"
-version = "0.1.0"
+version = "0.2.0"
 description = "MCP server for the OpenAlex open scholarly database — works, authors, institutions, sources and more"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -18,12 +18,16 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Information Analysis",
 ]
 dependencies = [
-    "mcp>=1.0.0",
+    # mcp 2.0 movió mcp.server.fastmcp; con >=1.0.0 sin techo, una
+    # instalación nueva desde PyPI resuelve a 2.x y la herramienta
+    # falla al importar. Se levanta el techo cuando se migre el server.
+    "mcp>=1.0.0,<2.0.0",
     "httpx>=0.27.0",
     "pydantic>=2.0.0",
     "pydantic-settings>=2.0.0",
     "python-dotenv>=1.0.0",
     "anyio>=4.0.0",
+    "platformdirs>=4.0.0",
 ]
 
 [project.scripts]

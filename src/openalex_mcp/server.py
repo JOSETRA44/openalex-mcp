@@ -1,6 +1,7 @@
 """FastMCP entry point for the OpenAlex MCP server."""
 
 import logging
+import sys
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
 
@@ -58,7 +59,12 @@ All data is freely available (CC0) — no paywall, no institutional access requi
 
 def create_app() -> FastMCP:
     settings = get_settings()
-    settings.validate_auth()
+    # A warning, not a failure: OpenAlex answers anonymous requests. It goes to
+    # stderr because stdout is the JSON-RPC channel and anything else there
+    # corrupts the stream before the client has finished connecting.
+    warning = settings.auth_warning()
+    if warning:
+        print(warning, file=sys.stderr)
 
     logging.basicConfig(level=getattr(logging, settings.log_level.upper(), logging.INFO))
 

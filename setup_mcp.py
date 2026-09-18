@@ -3,13 +3,16 @@
 Automated OpenAlex MCP setup script.
 
 Detects installed MCP clients and adds the openalex server configuration.
-Backs up existing config files before modifying.
+Backs up existing config files before modifying. Optionally also installs the
+openalex-researcher agent skill via `npx skills` (requires Node.js/npm).
 
 Usage:
-    python setup_mcp.py               # interactive
-    python setup_mcp.py --key KEY     # non-interactive
-    python setup_mcp.py --list        # show detected clients only
+    python setup_mcp.py                          # interactive
+    python setup_mcp.py --key KEY                # non-interactive
+    python setup_mcp.py --list                   # show detected clients only
     python setup_mcp.py --dry-run --key KEY --yes
+    python setup_mcp.py --key KEY --yes --with-skill   # also install the agent skill
+    python setup_mcp.py --key KEY --yes --no-skill     # skip the skill prompt
 """
 
 import argparse
@@ -17,9 +20,13 @@ import json
 import os
 import platform
 import shutil
+import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
+
+SKILL_SOURCE = "JOSETRA44/openalex-mcp"
+SKILL_NAME = "openalex-researcher"
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -181,6 +188,33 @@ def _install_vscode(path: Path, api_key: str, dry_run: bool) -> bool:
     return True
 
 
+def install_skill(dry_run: bool = False) -> bool:
+    """Install the openalex-researcher agent skill via `npx skills` (npm required).
+
+    This is a separate, explicit step from MCP client config — it fetches
+    from the network and writes into the agent's skills directory, so it's
+    never run without the caller opting in (--with-skill or an interactive yes).
+    """
+    npx = shutil.which("npx") or shutil.which("npx.cmd")
+    if not npx:
+        print("  'npx' not found (needs Node.js/npm). Skipping skill install.")
+        print(f"  Manual install: npx skills add {SKILL_SOURCE} --skill {SKILL_NAME}")
+        return False
+
+    cmd = [npx, "skills", "add", SKILL_SOURCE, "--skill", SKILL_NAME]
+    print(f"  Running: {' '.join(cmd)}")
+    if dry_run:
+        print("  [DRY RUN] Not executed.")
+        return True
+    try:
+        subprocess.run(cmd, check=True)
+        return True
+    except (subprocess.CalledProcessError, OSError) as exc:
+        print(f"  Skill install failed: {exc}")
+        print(f"  Manual install: npx skills add {SKILL_SOURCE} --skill {SKILL_NAME}")
+        return False
+
+
 def detect_clients() -> list[dict]:
     found = []
     for client in CLIENTS:
@@ -236,6 +270,11 @@ def main() -> None:
     parser.add_argument("--list", action="store_true", help="List detected clients and exit")
     parser.add_argument("--dry-run", action="store_true", help="Show what would be done without writing")
     parser.add_argument("--yes", "-y", action="store_true", help="Configure all clients without prompting")
+    skill_group = parser.add_mutually_exclusive_group()
+    skill_group.add_argument("--with-skill", action="store_true",
+                              help=f"Also install the {SKILL_NAME} agent skill via `npx skills` (no prompt)")
+    skill_group.add_argument("--no-skill", action="store_true",
+                              help="Skip the agent-skill install step entirely (no prompt)")
     args = parser.parse_args()
 
     print("=" * 42)
@@ -295,6 +334,20 @@ def main() -> None:
             sys.exit(1)
 
     install(api_key, selected, dry_run=args.dry_run)
+
+    if args.with_skill:
+        want_skill = True
+    elif args.no_skill:
+        want_skill = False
+    else:
+        print(f"\nAlso install the '{SKILL_NAME}' agent skill via `npx skills`?")
+        print("  This teaches agents that read SKILL.md files (Claude Code, etc.) how to")
+        print("  use OpenAlex effectively -- workflows, filter syntax, output shapes.")
+        want_skill = input("  Install skill? [y/N] ").strip().lower() in ("y", "yes")
+
+    if want_skill:
+        print(f"\n{'[DRY RUN] ' if args.dry_run else ''}Installing agent skill...")
+        install_skill(dry_run=args.dry_run)
 
 
 if __name__ == "__main__":

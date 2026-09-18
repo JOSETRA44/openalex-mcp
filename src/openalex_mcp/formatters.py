@@ -38,6 +38,19 @@ def _author_name(authorship: dict) -> str | None:
     return _sg(authorship, "author", "display_name")
 
 
+def _with_cursor(payload: dict, meta: dict) -> dict:
+    """Attach OpenAlex's cursor token when the response carries one.
+
+    Added conditionally so non-cursor responses keep their existing shape —
+    the MCP tools hand these dicts straight to an LLM and an always-null key
+    is just noise there. The CLI's --all harvest reads it to page forward.
+    """
+    next_cursor = _sg(meta, "next_cursor")
+    if next_cursor:
+        payload["next_cursor"] = next_cursor
+    return payload
+
+
 # ─── Works ────────────────────────────────────────────────────────────────────
 
 def format_works_list(raw: dict, query: str = "") -> dict:
@@ -66,14 +79,14 @@ def format_works_list(raw: dict, query: str = "") -> dict:
                 "language": _sg(w, "language"),
             }.items() if v is not None
         })
-    return {
+    return _with_cursor({
         "query": query,
         "total_results": _sg(meta, "count", default=0),
         "showing": len(papers),
         "page": _sg(meta, "page", default=1),
         "per_page": _sg(meta, "per_page", default=len(papers)),
         "works": papers,
-    }
+    }, meta)
 
 
 def format_work(raw: dict) -> dict:
@@ -146,12 +159,12 @@ def format_authors_list(raw: dict, query: str = "") -> dict:
                 "country": _sg(inst, "country_code"),
             }.items() if v is not None
         })
-    return {
+    return _with_cursor({
         "query": query,
         "total_results": _sg(meta, "count", default=0),
         "showing": len(authors),
         "authors": authors,
-    }
+    }, meta)
 
 
 def format_author(raw: dict) -> dict:
@@ -203,12 +216,12 @@ def format_institutions_list(raw: dict, query: str = "") -> dict:
                 "homepage": _sg(i, "homepage_url"),
             }.items() if v is not None
         })
-    return {
+    return _with_cursor({
         "query": query,
         "total_results": _sg(meta, "count", default=0),
         "showing": len(institutions),
         "institutions": institutions,
-    }
+    }, meta)
 
 
 def format_institution(raw: dict) -> dict:
@@ -255,12 +268,12 @@ def format_sources_list(raw: dict, query: str = "") -> dict:
                 "homepage": _sg(s, "homepage_url"),
             }.items() if v is not None
         })
-    return {
+    return _with_cursor({
         "query": query,
         "total_results": _sg(meta, "count", default=0),
         "showing": len(sources),
         "sources": sources,
-    }
+    }, meta)
 
 
 def format_source(raw: dict) -> dict:

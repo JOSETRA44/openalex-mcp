@@ -27,3 +27,11 @@ class OpenAlexNotFoundError(OpenAlexAPIError):
 
 class OpenAlexRateLimitError(OpenAlexAPIError):
     """Raised on 429 — rate limit exhausted after all retries."""
+
+
+class OpenAlexNetworkError(OpenAlexAPIError):
+    """Raised when the request never reached OpenAlex — DNS, TLS, timeout.
+
+    Split out from OpenAlexAPIError so the CLI can map a connectivity failure
+    (retryable, exit 6) apart from a genuine API rejection (exit 1).
+    """

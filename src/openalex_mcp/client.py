@@ -1,20 +1,20 @@
-"""Async HTTP client for the OpenAlex API with TTL caching and rate limiting."""
+"""Async HTTP client for the OpenAlex API with pluggable caching and rate limiting."""
 
 import asyncio
 import hashlib
-import json
 import logging
 import time
-from datetime import datetime, timedelta
 from typing import Any
 from urllib.parse import urlencode
 
 import httpx
 
+from .cache import CacheBackend, MemoryCache
 from .config import OpenAlexSettings
 from .exceptions import (
     OpenAlexAPIError,
     OpenAlexAuthError,
+    OpenAlexNetworkError,
     OpenAlexNotFoundError,
     OpenAlexRateLimitError,
 )
@@ -23,29 +23,10 @@ logger = logging.getLogger(__name__)
 
 BASE_URL = "https://api.openalex.org"
 
-
-class _TTLCache:
-    """In-memory cache with per-entry expiry."""
-
-    def __init__(self, ttl_seconds: int) -> None:
-        self._ttl = timedelta(seconds=ttl_seconds)
-        self._store: dict[str, tuple[Any, datetime]] = {}
-
-    def get(self, key: str) -> Any | None:
-        if key not in self._store:
-            return None
-        value, expires_at = self._store[key]
-        if datetime.utcnow() > expires_at:
-            del self._store[key]
-            return None
-        return value
-
-    def set(self, key: str, value: Any) -> None:
-        if self._ttl.total_seconds() > 0:
-            self._store[key] = (value, datetime.utcnow() + self._ttl)
-
-    def clear(self) -> None:
-        self._store.clear()
+# Query params that identify the caller. They must never reach the cache key
+# (two users sharing a machine would otherwise get separate cache entries for
+# identical questions) and must never be written into a cache file.
+_AUTH_PARAMS = ("api_key", "mailto")
 
 
 class _RateLimitState:
@@ -67,6 +48,17 @@ class _RateLimitState:
         except (ValueError, KeyError):
             pass
 
+    def as_meta(self) -> dict[str, Any]:
+        """Rate-limit facts worth surfacing in the CLI's ``meta`` block."""
+        return {
+            k: v
+            for k, v in {
+                "rate_limit": self.limit,
+                "rate_limit_remaining": self.remaining,
+            }.items()
+            if v is not None
+        }
+
     async def wait_if_needed(self) -> None:
         if self.remaining is not None and self.remaining <= 0 and self.reset_at:
             wait = max(0.0, self.reset_at - time.time()) + 0.5
@@ -75,19 +67,37 @@ class _RateLimitState:
 
 
 class OpenAlexClient:
-    """Async client for the OpenAlex REST API."""
+    """Async client for the OpenAlex REST API.
 
-    def __init__(self, settings: OpenAlexSettings) -> None:
+    ``cache`` defaults to an in-memory backend (right for the MCP server); the
+    CLI hands in a DiskCache so results survive process exit. ``refresh``
+    bypasses reads while still writing, which is what ``--refresh`` means.
+    """
+
+    def __init__(
+        self,
+        settings: OpenAlexSettings,
+        cache: CacheBackend | None = None,
+        refresh: bool = False,
+        transport: httpx.BaseTransport | httpx.AsyncBaseTransport | None = None,
+    ) -> None:
         self._settings = settings
-        self._cache = _TTLCache(settings.cache_ttl)
+        self._cache: CacheBackend = cache if cache is not None else MemoryCache()
+        self._refresh = refresh
+        self._transport = transport
         self._rl = _RateLimitState()
         self._http: httpx.AsyncClient | None = None
+        # True when the most recent request() was served from cache. The CLI
+        # reports this as `cached` in the JSON envelope.
+        self.last_cached: bool = False
+        self.any_cached: bool = False
 
     async def __aenter__(self) -> "OpenAlexClient":
         self._http = httpx.AsyncClient(
             base_url=BASE_URL,
             timeout=30.0,
-            headers={"User-Agent": "openalex-mcp/0.1.0 (https://github.com/JOSETRA44/openalex-mcp)"},
+            transport=self._transport,
+            headers={"User-Agent": "openalex-mcp/0.2.0 (https://github.com/JOSETRA44/openalex-mcp)"},
         )
         return self
 
@@ -95,6 +105,10 @@ class OpenAlexClient:
         if self._http:
             await self._http.aclose()
             self._http = None
+
+    @property
+    def rate_limit_meta(self) -> dict[str, Any]:
+        return self._rl.as_meta()
 
     def _auth_params(self) -> dict[str, str]:
         """Return the auth query parameter(s) for this request."""
@@ -107,10 +121,9 @@ class OpenAlexClient:
         return params
 
     @staticmethod
-    def _cache_key(path: str, params: dict) -> str:
-        # Exclude auth params from the cache key so they don't leak
-        safe = {k: v for k, v in params.items() if k not in ("api_key", "mailto")}
-        raw = f"{path}?{urlencode(sorted(safe.items()))}"
+    def _cache_key(path: str, params: dict, method: str = "GET") -> str:
+        safe = {k: v for k, v in params.items() if k not in _AUTH_PARAMS}
+        raw = f"{method} {BASE_URL}{path}?{urlencode(sorted(safe.items()))}"
         return hashlib.sha256(raw.encode()).hexdigest()
 
     async def request(self, path: str, params: dict | None = None) -> dict:
@@ -120,10 +133,14 @@ class OpenAlexClient:
         params = {k: v for k, v in (params or {}).items() if v is not None}
         cache_key = self._cache_key(path, params)
 
-        cached = self._cache.get(cache_key)
-        if cached is not None:
-            logger.debug("Cache hit: %s", path)
-            return cached
+        self.last_cached = False
+        if not self._refresh:
+            cached = self._cache.get(cache_key)
+            if cached is not None:
+                logger.debug("Cache hit: %s", path)
+                self.last_cached = True
+                self.any_cached = True
+                return cached
 
         await self._rl.wait_if_needed()
 
@@ -132,16 +149,17 @@ class OpenAlexClient:
         for attempt in range(self._settings.max_retries + 1):
             try:
                 resp = await self._http.get(path, params=full_params)
-            except httpx.TimeoutException:
-                raise OpenAlexAPIError("Request timed out after 30s")
+            except httpx.TimeoutException as exc:
+                raise OpenAlexNetworkError("Request timed out after 30s") from exc
             except httpx.RequestError as exc:
-                raise OpenAlexAPIError(f"Network error: {exc}") from exc
+                raise OpenAlexNetworkError(f"Network error: {exc}") from exc
 
             self._rl.update(resp.headers)
 
             if resp.status_code == 200:
                 data = resp.json()
-                self._cache.set(cache_key, data)
+                # Only 2xx bodies are cached — never an auth failure or an error.
+                self._cache.set(cache_key, data, self._settings.cache_ttl)
                 return data
 
             if resp.status_code == 401:
