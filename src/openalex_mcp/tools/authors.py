@@ -15,6 +15,7 @@ async def search_authors(
     filters: str = "",
     sort: str = "cited_by_count:desc",
     per_page: int = 10,
+    cursor: str | None = None,
 ) -> dict:
     """Search researchers/authors. Shared by the MCP tool and the CLI.
 
@@ -24,9 +25,12 @@ async def search_authors(
                 'works_count:>50', 'cited_by_count:>1000', 'has_orcid:true'
     - sort: 'cited_by_count:desc', 'works_count:desc', 'h_index:desc'
     - per_page: Results per page (1-200, default 10)
+    - cursor: Cursor token for deep pagination ('*' starts a scroll)
     """
     per_page = max(1, min(200, per_page))
     params: dict = {"per_page": per_page}
+    if cursor:
+        params["cursor"] = cursor
     if query:
         params["search"] = query
     if filters:

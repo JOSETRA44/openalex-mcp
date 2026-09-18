@@ -15,6 +15,7 @@ async def search_institutions(
     country_code: str = "",
     institution_type: str = "",
     per_page: int = 10,
+    cursor: str | None = None,
 ) -> dict:
     """Search universities, research institutes, and other organizations. Shared by the MCP tool and the CLI.
 
@@ -23,9 +24,12 @@ async def search_institutions(
     - institution_type: 'education', 'healthcare', 'company', 'government',
                         'nonprofit', 'facility', 'archive', 'other'
     - per_page: Results per page (1-200, default 10)
+    - cursor: Cursor token for deep pagination ('*' starts a scroll)
     """
     per_page = max(1, min(200, per_page))
     params: dict = {"per_page": per_page}
+    if cursor:
+        params["cursor"] = cursor
     if query:
         params["search"] = query
     filter_parts = []

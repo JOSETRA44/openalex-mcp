@@ -18,6 +18,7 @@ async def search_works(
     sort: str = "relevance_score:desc",
     per_page: int = 10,
     page: int = 1,
+    cursor: str | None = None,
 ) -> dict:
     """Search scholarly works. Shared by the MCP tool and the CLI.
 
@@ -29,9 +30,15 @@ async def search_works(
             'relevance_score:desc' (only with query), 'cited_by_count:asc'
     - per_page: Results per page (1-200, default 10)
     - page: Page number for pagination (default 1)
+    - cursor: Cursor token for deep pagination ('*' starts a scroll). OpenAlex
+      rejects cursor and page together, so passing one drops the other.
     """
     per_page = max(1, min(200, per_page))
-    params: dict = {"per_page": per_page, "page": page}
+    params: dict = {"per_page": per_page}
+    if cursor:
+        params["cursor"] = cursor
+    else:
+        params["page"] = page
     if query:
         params["search"] = query
     if filters:

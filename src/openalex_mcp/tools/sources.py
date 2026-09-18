@@ -16,6 +16,7 @@ async def search_sources(
     source_type: str = "",
     is_oa: bool | None = None,
     per_page: int = 10,
+    cursor: str | None = None,
 ) -> dict:
     """Search journals, conference proceedings, and repositories. Shared by the MCP tool and the CLI.
 
@@ -24,9 +25,12 @@ async def search_sources(
     - source_type: 'journal', 'repository', 'conference', 'book series', 'ebook platform'
     - is_oa: True to show only open-access sources
     - per_page: Results per page (1-200, default 10)
+    - cursor: Cursor token for deep pagination ('*' starts a scroll)
     """
     per_page = max(1, min(200, per_page))
     params: dict = {"per_page": per_page}
+    if cursor:
+        params["cursor"] = cursor
     if query:
         params["search"] = query
     filter_parts = []
