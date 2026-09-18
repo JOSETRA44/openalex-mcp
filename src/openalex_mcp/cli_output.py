@@ -19,6 +19,18 @@ DIM = "\033[2m" if _COLOR else ""
 CYAN = "\033[36m" if _COLOR else ""
 
 
+def set_color(enabled: bool) -> None:
+    """Override color detection — used when output is redirected to a file
+    via --output, since the isatty() check above runs before that redirect
+    happens and would otherwise leave ANSI codes in the written file."""
+    global _COLOR, RESET, BOLD, DIM, CYAN
+    _COLOR = enabled
+    RESET = "\033[0m" if enabled else ""
+    BOLD = "\033[1m" if enabled else ""
+    DIM = "\033[2m" if enabled else ""
+    CYAN = "\033[36m" if enabled else ""
+
+
 def _terminal_width() -> int:
     return shutil.get_terminal_size(fallback=(100, 24)).columns
 
@@ -184,6 +196,25 @@ def print_filter_guide(text: str) -> None:
     print(text)
 
 
+def print_config(data: dict) -> None:
+    status = f"{CYAN}configured ({data['auth_mode']}){RESET}" if data["auth_mode"] != "none" else "\033[31mNOT CONFIGURED\033[0m" if _COLOR else "NOT CONFIGURED"
+    print(f"{BOLD}auth:{RESET} {status}")
+    print(f"{BOLD}api_key:{RESET} {data['api_key_masked'] or '(not set)'}")
+    print(f"{BOLD}email:{RESET} {data['email'] or '(not set)'}")
+    print(f"{BOLD}cache_ttl:{RESET} {data['cache_ttl']}s")
+    print(f"{BOLD}max_retries:{RESET} {data['max_retries']}")
+    print(f"{BOLD}log_level:{RESET} {data['log_level']}")
+    if data["auth_mode"] == "none":
+        print(f"\n{DIM}Set OPENALEX_API_KEY (recommended) or OPENALEX_EMAIL in your environment or .env file.")
+        print(f"Free key: https://openalex.org/settings/api{RESET}")
+    if "test" in data:
+        test = data["test"]
+        if test["ok"]:
+            print(f"\n{BOLD}connectivity:{RESET} OK ({test['detail']})")
+        else:
+            print(f"\n{BOLD}connectivity:{RESET} FAILED — {test['detail']}")
+
+
 PRINTERS: dict[str, Callable[[Any], None]] = {
     "search-works": print_works_list,
     "get-work": print_work,
@@ -193,5 +224,6 @@ PRINTERS: dict[str, Callable[[Any], None]] = {
     "get-institution": print_institution,
     "search-sources": print_sources_list,
     "get-source": print_source,
+    "config": print_config,
     "aggregate-works": print_group_by,
 }
